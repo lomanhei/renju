@@ -180,7 +180,7 @@ const utils = {
   },
 };
 
-class Renju {
+export class Renju {
   /**
    * @constructs
    * @param {Object} [board]
@@ -239,7 +239,7 @@ class Renju {
     }
 
     this.size = size;
-
+    
     if (rows) {
       this.rows = rows;
       let bs = 0;
@@ -266,9 +266,8 @@ class Renju {
       for (let i = 0; i < size; i += 1) {
         emptyRows.push('.'.repeat(size));
       }
-      emptyRows[7] = '.......B.......';
       this.rows = emptyRows;
-      this.plays = 'W';
+      this.plays = 'B';
     }
 
     if (errors.length > 0) {
@@ -283,11 +282,33 @@ class Renju {
     if (this.plays === 'B') {
       this.mark();
     }
-
+    
+    this.player = "B";
     this.winner = null;
     this.draw = false;
+    this.history = [];    
   }
+  
+  reset(player){
+    const emptyRows = [];
+    for (let i = 0; i < this.size; i += 1) {
+      emptyRows.push('.'.repeat(this.size));
+    }
+    this.rows = emptyRows;
+    this.plays = 'B';
+    this.internal = this.rows.map((row, i) => row.split('').map((item, j) => `[${item}(${i},${j})]`).join(''));
+    this.marked = JSON.parse(JSON.stringify(this.internal));
+    this.internalLinesHalfMarked = this.getInternalLines(true); // init.
 
+    if (this.plays === 'B') {
+      this.mark();
+    }
+    this.player = player
+    this.winner = null;
+    this.draw = false;
+    this.history = [];  
+  }
+  
   getInternalMatrix(array) {
     return (array || this.internal).map(row => row
       .split(/\[/)
@@ -441,6 +462,7 @@ class Renju {
 
   mark() {
     // 6
+    var toMark = []  
     const _6 = this.get6();
     const _6Celds = [];
     _6.forEach((item) => {
@@ -453,9 +475,7 @@ class Renju {
       }
     });
     _6Celds.forEach((item) => {
-      const row = this.marked[item.i];
-      const newRow = row.replace(`[.(${item.i},${item.j})]`, `[6(${item.i},${item.j})]`);
-      this.marked[item.i] = newRow;
+      toMark.push([item.i,item.j])  
     });
 
     this.internalLinesHalfMarked = this.getInternalLines(this.marked);
@@ -478,10 +498,9 @@ class Renju {
       new4 = new4.filter((item2, index) => new4.indexOf(item2) === index);
       new4 = new4.filter(item2 => _4.indexOf(item2) === -1);
       if (new4.length > 1) {
-        this.marked[i] = this.marked[i].replace(`[B(${i},${j})]`, `[4(${i},${j})]`);
-      } else {
-        this.marked[i] = this.marked[i].replace(`[B(${i},${j})]`, `[.(${i},${j})]`);
-      }
+        toMark.push([i,j])  
+      } 
+      this.marked[i] = this.marked[i].replace(`[B(${i},${j})]`, `[.(${i},${j})]`);
     });
 
     // 3x3
@@ -502,11 +521,18 @@ class Renju {
       new3 = new3.filter((item3, index) => new3.indexOf(item3) === index);
       new3 = new3.filter(item3 => _3.indexOf(item3) === -1);
       if (new3.length > 1) {
-        this.marked[i] = this.marked[i].replace(`[B(${i},${j})]`, `[3(${i},${j})]`);
-      } else {
-        this.marked[i] = this.marked[i].replace(`[B(${i},${j})]`, `[.(${i},${j})]`);
-      }
+        toMark.push([i,j])  
+      } 
+      this.marked[i] = this.marked[i].replace(`[B(${i},${j})]`, `[.(${i},${j})]`);
     });
+    let tempRows =  JSON.parse(JSON.stringify(this.rows))
+    for(let x in toMark){
+        let i = toMark[x][0], j = toMark[x][1]
+        tempRows[i] = tempRows[i].substring(0, j) + "1" + tempRows[i].substring(j+1)
+    }
+    //console.log(tempRows)
+    this.internal = tempRows.map((row, i) => row.split('').map((item, j) => `[${item}(${i},${j})]`).join(''));
+    this.marked = JSON.parse(JSON.stringify(this.internal));
   }
 
   /**
@@ -518,46 +544,79 @@ class Renju {
    * @param {number} j Colum, >= 0, <= Board Size - 1
    * @return {number} -1 Forbidden, 0 Accepted, 1 Game is over
    */
-  play(i, j) {
-    if (this.winner !== null || this.draw) {
-      return 1;
+  play(i, j, undo = false) {
+    if (undo) {
+      const row = this.rows[i];
+      const celds = row.split('');
+      if(celds[j]===undo){
+        celds[j] = ".";
+        const newRow = celds.join('');
+        this.rows[i] = newRow;
+        this.plays = undo;
+        this.internal = this.rows.map((row2, k) => row2.split('').map((item, l) => `[${item}(${k},${l})]`).join(''));
+        this.marked = JSON.parse(JSON.stringify(this.internal));
+        if (this.plays === 'B') {
+          this.mark();
+        }
+        this.winner = null;
+        this.draw = false;
+        return 0;
+      }
+      return -1;
+    }else{
+      if (this.winner !== null || this.draw) {
+        return 1;
+      }
+      const row = this.rows[i];
+      const celds = row.split('');
+      const markedMatrix = this.getMarkedMatrix();
+      if (
+        (this.plays === 'B' && /\[\./.test(markedMatrix[i][j]))
+        || (this.plays === 'W' && /\[(\.|6|4|3)/.test(markedMatrix[i][j]))
+      ) {
+        celds[j] = this.plays;
+        this.history.push([i,j,this.plays])
+        const newRow = celds.join('');
+        this.rows[i] = newRow;
+        this.plays = this.plays === 'B' ? 'W' : 'B';
+        this.internal = this.rows.map((row2, k) => row2.split('').map((item, l) => `[${item}(${k},${l})]`).join(''));
+        this.marked = JSON.parse(JSON.stringify(this.internal));
+
+        if (this.plays === 'B') {
+          this.mark();
+        }
+
+        if (this.plays === 'B' && this.whitePlayerWins()) {
+          this.winner = 'W';
+          return 1;
+        }
+
+        if (this.plays === 'W' && this.blackPlayerWins()) {
+          this.winner = 'B';
+          return 1;
+        }
+
+        if (!this.whitePlayerCanWin() && !this.blackPlayerCanWin()) {
+          this.draw = true;
+          return 1;
+        }
+        return 0;
+      }
+      return -1;
     }
-
-    const row = this.rows[i];
-    const celds = row.split('');
-    const markedMatrix = this.getMarkedMatrix();
-    if (
-      (this.plays === 'B' && /\[\./.test(markedMatrix[i][j]))
-      || (this.plays === 'W' && /\[(\.|6|4|3)/.test(markedMatrix[i][j]))
-    ) {
-      celds[j] = this.plays;
-      const newRow = celds.join('');
-      this.rows[i] = newRow;
-      this.plays = this.plays === 'B' ? 'W' : 'B';
-      this.internal = this.rows.map((row2, k) => row2.split('').map((item, l) => `[${item}(${k},${l})]`).join(''));
-      this.marked = JSON.parse(JSON.stringify(this.internal));
-
-      if (this.plays === 'B') {
-        this.mark();
-      }
-
-      if (this.plays === 'B' && this.whitePlayerWins()) {
-        this.winner = 'W';
-        return 1;
-      }
-
-      if (this.plays === 'W' && this.blackPlayerWins()) {
-        this.winner = 'B';
-        return 1;
-      }
-
-      if (!this.whitePlayerCanWin() && !this.blackPlayerCanWin()) {
-        this.draw = true;
-        return 1;
-      }
-      return 0;
+  }
+  showLog(){
+    console.log("Game Log:\n"+this.history.map(x => {
+      return x.join(",")
+    }).join("\n"))
+  }
+  undo() {
+    if(this.history.length == 0){
+      return -1
     }
-    return -1;
+    const [i,j,plays] = this.history.pop();
+    this.play(i,j,plays)
+    return 0
   }
 
   /**
@@ -565,16 +624,16 @@ class Renju {
    */
   print() {
     const markedMatrix = this.getMarkedMatrix();
-    markedMatrix.forEach((row) => {
+    console.log(markedMatrix.map((row) => {
       // eslint-disable-next-line no-console
-      console.log(row
+      return (row
         .join('')
         .replace(/\(\d+,\d+\)/g, '')
         .replace(/\[/g, '')
         .replace(/\]/g, '')
         .split('')
         .join(' '));
-    });
+    }).join('\n'));
   }
 
   /**
@@ -582,8 +641,56 @@ class Renju {
    * @return {string[]}
    */
   getBoard() {
-    return this.getMarkedMatrix();
+    const markedMatrix = this.getMarkedMatrix();
+    return markedMatrix.map((row) => {
+      // eslint-disable-next-line no-console
+      return (row
+        .join('')
+        .replace(/\(\d+,\d+\)/g, '')
+        .replace(/\[/g, '')
+        .replace(/\]/g, '')
+        .split(''));
+    });
   }
+  
+  /**
+   * Returns the coordinates of stones with the showForbidden option.
+   * @return {array(3)[]} ~ [x,y,play]
+   */
+  getCorrdinates(showForbidden = false) {
+    const boardMatrix = this.getBoard();
+    return [].concat(...boardMatrix).map( (ele,idx) => {
+      let i = ~~(idx/15)
+      let j = idx%15
+      if(showForbidden){
+        if (ele !== "."){ return [i,j,ele] }
+      }else{
+        if (ele === "B" || ele === "W"){ return [i,j,ele] }
+      }
+    }).filter(x => x !== undefined)
+  }  
+  
+  /**
+   * Returns the coordinates of forbidden moves.
+   * @return {array(3)[]} ~ [x,y,rule]
+   */
+  getForbidden() {
+    if(this.history.length < 3){
+        let forbiddenMoves = []
+        for(let i = 0;i<this.size; i++){
+            for(let j = 0;j<this.size;j++){
+                if(   i < (this.size-2*this.history.length-1)/2 
+                   || i > (this.size+2*this.history.length)/2
+                   || j < (this.size-2*this.history.length-1)/2 
+                   || j > (this.size+2*this.history.length)/2){
+                    forbiddenMoves.push([i,j])
+                }
+            }
+        }
+        return forbiddenMoves
+    }
+    return this.getCorrdinates(true).filter(x => {return x[2] !== "B" && x[2] !== "W"}).map( x => {return [x[0],x[1]]} )
+  }    
 
   /**
    * Returns 'B' if blacks player won.
@@ -604,4 +711,3 @@ class Renju {
   }
 }
 
-module.exports = Renju;
